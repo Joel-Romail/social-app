@@ -7,11 +7,13 @@ import {
   Heart,
   Home,
   LogIn,
+  LogOut,
   Menu,
   PlusSquare,
   Search,
   X,
 } from "lucide-react";
+import { signOut, useSession } from "next-auth/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -20,29 +22,13 @@ import Avatar from "./ui/avatar";
 /**
  * Navbar — top navigation bar on desktop, bottom tab bar on mobile.
  *
- * Desktop: horizontal bar pinned to the top with logo, search, and icon links.
- * Mobile:  fixed bottom tab bar with the five primary destinations + a
- *          hamburger overflow menu for secondary links.
- *
- * The component highlights the active route using `usePathname()`.
+ * Uses the Auth.js session to show the user's avatar or a login link.
+ * Hides entirely on auth pages (/login, /signup).
  */
-
-interface NavItem {
-  href: string;
-  label: string;
-  icon: React.ReactNode;
-}
-
-const navItems: NavItem[] = [
-  { href: "/", label: "Home", icon: <Home size={24} /> },
-  { href: "/explore", label: "Explore", icon: <Compass size={24} /> },
-  { href: "/create", label: "Create", icon: <PlusSquare size={24} /> },
-  { href: "/activity", label: "Activity", icon: <Heart size={24} /> },
-  { href: "/profile", label: "Profile", icon: <Avatar alt="You" size="sm" /> },
-];
 
 export default function Navbar() {
   const pathname = usePathname();
+  const { data: session } = useSession();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Don't show navbar on auth pages
@@ -50,17 +36,33 @@ export default function Navbar() {
     return null;
   }
 
+  const navItems = [
+    { href: "/", label: "Home", icon: <Home size={24} /> },
+    { href: "/explore", label: "Explore", icon: <Compass size={24} /> },
+    { href: "/create", label: "Create", icon: <PlusSquare size={24} /> },
+    { href: "/activity", label: "Activity", icon: <Heart size={24} /> },
+    {
+      href: "/profile",
+      label: "Profile",
+      icon: (
+        <Avatar
+          src={session?.user?.image ?? undefined}
+          alt={session?.user?.name ?? "You"}
+          size="sm"
+        />
+      ),
+    },
+  ];
+
   return (
     <>
       {/* ───── Desktop top bar ───── */}
       <header className="fixed inset-x-0 top-0 z-50 hidden h-16 border-b border-border bg-card/80 backdrop-blur-md md:block">
         <nav className="mx-auto flex h-full max-w-5xl items-center justify-between px-6">
-          {/* Logo / brand */}
           <Link href="/" className="text-xl font-bold tracking-tight">
             Social App
           </Link>
 
-          {/* Search bar */}
           <div className="relative w-64">
             <Search
               size={16}
@@ -73,7 +75,6 @@ export default function Navbar() {
             />
           </div>
 
-          {/* Nav links */}
           <div className="flex items-center gap-5">
             {navItems.map((item) => (
               <Link
@@ -112,7 +113,6 @@ export default function Navbar() {
           </Link>
         ))}
 
-        {/* Hamburger for overflow */}
         <button
           onClick={() => setMobileMenuOpen(true)}
           className="text-muted-foreground"
@@ -126,7 +126,6 @@ export default function Navbar() {
       <AnimatePresence>
         {mobileMenuOpen && (
           <>
-            {/* Backdrop */}
             <motion.div
               className="fixed inset-0 z-50 bg-black/40"
               initial={{ opacity: 0 }}
@@ -135,7 +134,6 @@ export default function Navbar() {
               onClick={() => setMobileMenuOpen(false)}
             />
 
-            {/* Sheet */}
             <motion.div
               className="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl bg-card p-6"
               initial={{ y: "100%" }}
@@ -159,17 +157,37 @@ export default function Navbar() {
                   onClick={() => setMobileMenuOpen(false)}
                   className="flex items-center gap-3 rounded-xl p-3 hover:bg-muted"
                 >
-                  <Avatar alt="You" size="md" />
-                  <span className="font-medium">Your Profile</span>
+                  <Avatar
+                    src={session?.user?.image ?? undefined}
+                    alt={session?.user?.name ?? "You"}
+                    size="md"
+                  />
+                  <span className="font-medium">
+                    {session?.user?.name ?? "Your Profile"}
+                  </span>
                 </Link>
-                <Link
-                  href="/login"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="flex items-center gap-3 rounded-xl p-3 hover:bg-muted"
-                >
-                  <LogIn size={20} />
-                  <span className="font-medium">Log In</span>
-                </Link>
+
+                {session ? (
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      signOut({ callbackUrl: "/login" });
+                    }}
+                    className="flex items-center gap-3 rounded-xl p-3 hover:bg-muted"
+                  >
+                    <LogOut size={20} />
+                    <span className="font-medium">Log Out</span>
+                  </button>
+                ) : (
+                  <Link
+                    href="/login"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center gap-3 rounded-xl p-3 hover:bg-muted"
+                  >
+                    <LogIn size={20} />
+                    <span className="font-medium">Log In</span>
+                  </Link>
+                )}
               </div>
             </motion.div>
           </>

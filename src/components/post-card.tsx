@@ -1,5 +1,6 @@
 "use client";
 
+import { toggleLike } from "@/lib/api-client";
 import type { Post } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
@@ -12,14 +13,8 @@ import Avatar from "./ui/avatar";
 /**
  * PostCard — a single post in the feed.
  *
- * Layout (top to bottom):
- *  1. Header: avatar + username + timestamp
- *  2. Image: square aspect ratio with hover zoom
- *  3. Actions: like, comment, share, bookmark
- *  4. Likes count + caption preview
- *
- * The like button animates with a scale pop on toggle.
- * Double-tapping the image also toggles like (Instagram-style).
+ * Calls POST /api/posts/[postId]/like on like toggle with optimistic updates.
+ * Double-tapping the image also likes (Instagram-style).
  */
 
 interface PostCardProps {
@@ -32,14 +27,25 @@ export default function PostCard({ post, className }: PostCardProps) {
   const [likesCount, setLikesCount] = useState(post.likesCount);
   const [showHeart, setShowHeart] = useState(false);
 
-  const toggleLike = () => {
-    setLiked((prev) => !prev);
-    setLikesCount((prev) => (liked ? prev - 1 : prev + 1));
+  const handleToggleLike = async () => {
+    // Optimistic update
+    const wasLiked = liked;
+    setLiked(!wasLiked);
+    setLikesCount((c) => (wasLiked ? c - 1 : c + 1));
+
+    try {
+      const result = await toggleLike(post.id);
+      setLiked(result.liked);
+      setLikesCount(result.likesCount);
+    } catch {
+      // Revert on error
+      setLiked(wasLiked);
+      setLikesCount((c) => (wasLiked ? c + 1 : c - 1));
+    }
   };
 
   const handleDoubleTap = () => {
-    if (!liked) toggleLike();
-    // Show heart overlay animation
+    if (!liked) handleToggleLike();
     setShowHeart(true);
     setTimeout(() => setShowHeart(false), 800);
   };
@@ -48,7 +54,10 @@ export default function PostCard({ post, className }: PostCardProps) {
 
   return (
     <motion.article
-      className={cn("overflow-hidden rounded-2xl border border-border bg-card", className)}
+      className={cn(
+        "overflow-hidden rounded-2xl border border-border bg-card",
+        className,
+      )}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
@@ -57,8 +66,8 @@ export default function PostCard({ post, className }: PostCardProps) {
       <div className="flex items-center gap-3 px-4 py-3">
         <Link href={`/profile/${post.author.username}`}>
           <Avatar
-            src={post.author.avatarUrl}
-            alt={post.author.displayName}
+            src={post.author.image ?? undefined}
+            alt={post.author.name}
             size="sm"
           />
         </Link>
@@ -85,8 +94,6 @@ export default function PostCard({ post, className }: PostCardProps) {
           sizes="(max-width: 640px) 100vw, 480px"
           className="object-cover transition-transform duration-300 hover:scale-105"
         />
-
-        {/* Double-tap heart overlay */}
         <AnimatedHeart visible={showHeart} />
       </div>
 
@@ -94,7 +101,7 @@ export default function PostCard({ post, className }: PostCardProps) {
       <div className="flex items-center gap-4 px-4 pt-3">
         <motion.button
           whileTap={{ scale: 1.3 }}
-          onClick={toggleLike}
+          onClick={handleToggleLike}
           aria-label={liked ? "Unlike" : "Like"}
         >
           <Heart
@@ -110,19 +117,19 @@ export default function PostCard({ post, className }: PostCardProps) {
         <button aria-label="Comment">
           <MessageCircle
             size={24}
-            className="text-foreground hover:text-muted-foreground transition-colors"
+            className="text-foreground transition-colors hover:text-muted-foreground"
           />
         </button>
         <button aria-label="Share">
           <Send
             size={24}
-            className="text-foreground hover:text-muted-foreground transition-colors"
+            className="text-foreground transition-colors hover:text-muted-foreground"
           />
         </button>
         <button aria-label="Save" className="ml-auto">
           <Bookmark
             size={24}
-            className="text-foreground hover:text-muted-foreground transition-colors"
+            className="text-foreground transition-colors hover:text-muted-foreground"
           />
         </button>
       </div>
@@ -142,7 +149,7 @@ export default function PostCard({ post, className }: PostCardProps) {
           <span className="text-card-foreground">{post.caption}</span>
         </p>
         {post.commentsCount > 0 && (
-          <button className="mt-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <button className="mt-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
             View all {post.commentsCount} comments
           </button>
         )}

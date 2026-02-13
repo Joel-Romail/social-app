@@ -2,79 +2,145 @@
 
 import Avatar from "@/components/ui/avatar";
 import Button from "@/components/ui/button";
-import { currentUser, posts } from "@/lib/mock-data";
+import { getUser, toggleFollow } from "@/lib/api-client";
+import type { UserProfile } from "@/lib/types";
 import { motion } from "framer-motion";
-import { Grid3x3, Settings } from "lucide-react";
-import Image from "next/image";
-import { useState } from "react";
+import { Grid3x3, Loader2, Settings } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Profile page — displays the current user's profile.
  *
- * Sections:
- *  1. Hero: avatar, display name, bio, stats (posts/followers/following)
- *  2. Actions: Edit Profile / Settings buttons
- *  3. Post grid: square thumbnails in a 3-column grid
- *
- * In a real app the user would come from URL params + API. Here we use
- * the `currentUser` mock for layout purposes.
+ * Fetches the user profile from GET /api/users/[username].
+ * Uses the Auth.js session to determine which user to show.
+ * Includes follow toggle that calls POST /api/follow/[userId].
  */
 
 export default function ProfilePage() {
-  const user = currentUser;
-  // Show all posts to demonstrate the grid (mock user has no authored posts in feed)
-  const displayPosts = posts;
-  const [following, setFollowing] = useState(user.isFollowing);
+  const { data: session, status: sessionStatus } = useSession();
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [following, setFollowing] = useState(false);
+  const fetchedRef = useRef(false);
+
+  // Fetch profile once session is available
+  useEffect(() => {
+    if (sessionStatus !== "authenticated" || !session?.user) return;
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
+    const username = (session.user as { username: string }).username;
+
+    getUser(username)
+      .then((profile) => {
+        setUser(profile);
+        setFollowing(profile.isFollowing);
+      })
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : "Failed to load profile"),
+      );
+  }, [session, sessionStatus]);
+
+  const handleFollowToggle = async () => {
+    if (!user) return;
+    const prev = following;
+    setFollowing(!prev);
+    try {
+      const result = await toggleFollow(user.id);
+      setFollowing(result.following);
+      setUser((u) =>
+        u ? { ...u, followersCount: result.followersCount } : u,
+      );
+    } catch {
+      setFollowing(prev);
+    }
+  };
+
+  // Session still loading or waiting for profile data
+  if (sessionStatus === "loading" || (sessionStatus === "authenticated" && !user && !error)) {
+    return (
+      <div className="flex justify-center pt-32">
+        <Loader2 size={32} className="animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // Not authenticated
+  if (sessionStatus === "unauthenticated") {
+    return (
+      <div className="mx-auto max-w-md pt-32 text-center">
+        <p className="text-muted-foreground">
+          Please log in to view your profile.
+        </p>
+      </div>
+    );
+  }
+
+  // Error or no user
+  if (error || !user) {
+    return (
+      <div className="mx-auto max-w-md pt-32 text-center">
+        <p className="text-muted-foreground">{error ?? "User not found"}</p>
+      </div>
+    );
+  }
+
+  const isOwnProfile = session?.user?.id === user.id;
 
   return (
     <div className="mx-auto max-w-4xl px-4 pt-20 pb-24 md:pb-8">
       {/* ── Hero section ── */}
       <div className="flex flex-col items-center gap-6 md:flex-row md:items-start md:gap-12">
-        {/* Avatar */}
         <motion.div
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.3 }}
         >
           <Avatar
-            src={user.avatarUrl}
-            alt={user.displayName}
+            src={user.image ?? undefined}
+            alt={user.name}
             size="xl"
             className="ring-4 ring-border"
           />
         </motion.div>
 
-        {/* Info */}
         <div className="flex flex-1 flex-col items-center gap-4 md:items-start">
-          {/* Username + actions */}
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-xl font-semibold">{user.username}</h1>
-            <Button
-              variant={following ? "secondary" : "primary"}
-              size="sm"
-              onClick={() => setFollowing((f) => !f)}
-            >
-              {following ? "Following" : "Follow"}
-            </Button>
+            {!isOwnProfile && (
+              <Button
+                variant={following ? "secondary" : "primary"}
+                size="sm"
+                onClick={handleFollowToggle}
+              >
+                {following ? "Following" : "Follow"}
+              </Button>
+            )}
+            {isOwnProfile && (
+              <Button variant="secondary" size="sm">
+                Edit Profile
+              </Button>
+            )}
             <button
-              className="text-muted-foreground hover:text-foreground transition-colors"
+              className="text-muted-foreground transition-colors hover:text-foreground"
               aria-label="Settings"
             >
               <Settings size={20} />
             </button>
           </div>
 
-          {/* Stats row */}
           <div className="flex gap-8 text-sm">
             <Stat label="posts" value={user.postsCount} />
             <Stat label="followers" value={user.followersCount} />
             <Stat label="following" value={user.followingCount} />
           </div>
 
-          {/* Bio */}
           <div className="text-center md:text-left">
-            <p className="font-semibold">{user.displayName}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{user.bio}</p>
+            <p className="font-semibold">{user.name}</p>
+            {user.bio && (
+              <p className="mt-1 text-sm text-muted-foreground">{user.bio}</p>
+            )}
           </div>
         </div>
       </div>
@@ -87,32 +153,14 @@ export default function ProfilePage() {
         </button>
       </div>
 
-      {/* ── Post grid ── */}
-      <div className="mt-1 grid grid-cols-3 gap-1">
-        {displayPosts.map((post, i) => (
-          <motion.div
-            key={post.id}
-            className="relative aspect-square cursor-pointer overflow-hidden"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: i * 0.05 }}
-            whileHover={{ scale: 1.02 }}
-          >
-            <Image
-              src={post.imageUrl}
-              alt={post.caption}
-              fill
-              sizes="(max-width: 640px) 33vw, 260px"
-              className="object-cover"
-            />
-          </motion.div>
-        ))}
+      {/* ── Empty grid placeholder ── */}
+      <div className="py-12 text-center text-sm text-muted-foreground">
+        No posts yet.
       </div>
     </div>
   );
 }
 
-/** Inline stat display (e.g. "42 posts") */
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex gap-1">

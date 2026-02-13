@@ -2,22 +2,57 @@
 
 import Button from "@/components/ui/button";
 import Input from "@/components/ui/input";
+import { signup } from "@/lib/api-client";
 import { motion } from "framer-motion";
-import { Camera } from "lucide-react";
+import { Camera, Loader2 } from "lucide-react";
+import { signIn } from "next-auth/react";
 import Link from "next/link";
-import type { FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { type FormEvent, useState } from "react";
 
 /**
- * Signup page — centered card layout with name, email, username, and password fields.
- *
- * No backend logic — form submission is stubbed with preventDefault.
- * Mirrors the login page design for visual consistency.
+ * Signup page — creates a new account via POST /api/signup, then
+ * automatically logs in using Auth.js credentials provider.
  */
 
 export default function SignupPage() {
-  const handleSubmit = (e: FormEvent) => {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // TODO: wire up registration
+    setError(null);
+    setLoading(true);
+
+    const formData = new FormData(e.currentTarget);
+    const name = formData.get("name") as string;
+    const email = formData.get("email") as string;
+    const username = formData.get("username") as string;
+    const password = formData.get("password") as string;
+
+    try {
+      // 1. Create the account
+      await signup({ name, email, username, password });
+
+      // 2. Auto-login after signup
+      const result = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      });
+
+      if (result?.error) {
+        setError("Account created, but login failed. Please try logging in.");
+      } else {
+        router.push("/");
+        router.refresh();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Signup failed");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -34,15 +69,23 @@ export default function SignupPage() {
           <div className="mb-8 flex flex-col items-center gap-2">
             <Camera size={36} className="text-primary" />
             <h1 className="text-2xl font-bold tracking-tight">Social App</h1>
-            <p className="text-sm text-center text-muted-foreground">
+            <p className="text-center text-sm text-muted-foreground">
               Sign up to see photos and videos from your friends.
             </p>
           </div>
+
+          {/* Error message */}
+          {error && (
+            <div className="mb-4 rounded-lg bg-destructive/10 p-3 text-center text-sm text-destructive">
+              {error}
+            </div>
+          )}
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <Input
               id="name"
+              name="name"
               label="Full Name"
               type="text"
               placeholder="Jane Doe"
@@ -50,6 +93,7 @@ export default function SignupPage() {
             />
             <Input
               id="email"
+              name="email"
               label="Email"
               type="email"
               placeholder="you@example.com"
@@ -57,20 +101,29 @@ export default function SignupPage() {
             />
             <Input
               id="username"
+              name="username"
               label="Username"
               type="text"
               placeholder="janedoe"
               required
+              minLength={3}
             />
             <Input
               id="password"
+              name="password"
               label="Password"
               type="password"
               placeholder="At least 8 characters"
               required
               minLength={8}
             />
-            <Button type="submit" size="lg" className="mt-2 w-full">
+            <Button
+              type="submit"
+              size="lg"
+              className="mt-2 w-full"
+              disabled={loading}
+            >
+              {loading && <Loader2 size={16} className="mr-2 animate-spin" />}
               Sign Up
             </Button>
           </form>
@@ -83,7 +136,10 @@ export default function SignupPage() {
         {/* Login link */}
         <div className="mt-4 rounded-2xl border border-border bg-card p-5 text-center text-sm">
           Already have an account?{" "}
-          <Link href="/login" className="font-semibold text-primary hover:underline">
+          <Link
+            href="/login"
+            className="font-semibold text-primary hover:underline"
+          >
             Log in
           </Link>
         </div>

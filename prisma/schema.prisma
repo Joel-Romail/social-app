@@ -1,0 +1,136 @@
+// Social App — Prisma schema
+//
+// Models: User, Post, Like, Comment, Follow, Notification
+//
+// Design decisions:
+//   - UUIDs (cuid) for all primary keys — avoids sequential ID guessing
+//   - Compound unique constraints on Like, Follow to prevent duplicates
+//   - Cascading deletes so removing a user cleans up all their content
+//   - Indexes on foreign keys and commonly-queried columns (createdAt)
+//   - Separate Follow model (not self-relation array) for efficient count queries
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── User ────────────────────────────────────────────────────────────────────
+// Core account model. Email must be unique; username must be unique.
+// hashedPassword stores the bcrypt hash (never the plaintext).
+model User {
+  id             String   @id @default(cuid())
+  name           String
+  email          String   @unique
+  username       String   @unique
+  hashedPassword String
+  image          String?  // profile picture URL
+  bio            String?  @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  posts     Post[]
+  likes     Like[]
+  comments  Comment[]
+  followers Follow[] @relation("Following") // people who follow this user
+  following Follow[] @relation("Follower")  // people this user follows
+
+  sentNotifications     Notification[] @relation("NotificationActor")
+  receivedNotifications Notification[] @relation("NotificationReceiver")
+
+  @@index([email])
+  @@index([username])
+}
+
+// ─── Post ────────────────────────────────────────────────────────────────────
+// A single image post with a caption. Always belongs to one User.
+model Post {
+  id        String   @id @default(cuid())
+  imageUrl  String
+  caption   String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Foreign key
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Relations
+  likes    Like[]
+  comments Comment[]
+
+  @@index([userId])
+  @@index([createdAt(sort: Desc)]) // feed queries order by newest first
+}
+
+// ─── Like ────────────────────────────────────────────────────────────────────
+// Junction table for user ↔ post likes.
+// Compound unique ensures a user can only like a post once.
+model Like {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@index([postId])
+}
+
+// ─── Comment ─────────────────────────────────────────────────────────────────
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId, createdAt(sort: Desc)])
+}
+
+// ─── Follow ──────────────────────────────────────────────────────────────────
+// follower follows following. Compound unique prevents duplicate follow rows.
+model Follow {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  followerId  String
+  follower    User   @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+
+  followingId String
+  following   User   @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+}
+
+// ─── Notification (optional) ─────────────────────────────────────────────────
+// Generic notification: "actorId did {type} on {postId}" sent to receiverId.
+model Notification {
+  id        String   @id @default(cuid())
+  type      String   // "like" | "comment" | "follow"
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  actorId    String
+  actor      User   @relation("NotificationActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  receiverId String
+  receiver   User   @relation("NotificationReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  postId String? // null for follow notifications
+
+  @@index([receiverId, read, createdAt(sort: Desc)])
+}

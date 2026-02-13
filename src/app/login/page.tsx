@@ -3,21 +3,45 @@
 import Button from "@/components/ui/button";
 import Input from "@/components/ui/input";
 import { motion } from "framer-motion";
-import { Camera } from "lucide-react";
+import { Camera, Loader2 } from "lucide-react";
+import { signIn } from "next-auth/react";
 import Link from "next/link";
-import type { FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { type FormEvent, useState } from "react";
 
 /**
- * Login page — centered card layout with email + password fields.
+ * Login page — authenticates via Auth.js credentials provider.
  *
- * No backend logic — form submission is stubbed with preventDefault.
- * Includes a link to the signup page and a divider for future OAuth buttons.
+ * On submit, calls signIn("credentials") which hits the Auth.js route.
+ * On success, redirects to the home page. On failure, shows the error.
  */
 
 export default function LoginPage() {
-  const handleSubmit = (e: FormEvent) => {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // TODO: wire up authentication
+    setError(null);
+    setLoading(true);
+
+    const formData = new FormData(e.currentTarget);
+
+    const result = await signIn("credentials", {
+      email: formData.get("email") as string,
+      password: formData.get("password") as string,
+      redirect: false,
+    });
+
+    setLoading(false);
+
+    if (result?.error) {
+      setError("Invalid email or password.");
+    } else {
+      router.push("/");
+      router.refresh();
+    }
   };
 
   return (
@@ -39,10 +63,18 @@ export default function LoginPage() {
             </p>
           </div>
 
+          {/* Error message */}
+          {error && (
+            <div className="mb-4 rounded-lg bg-destructive/10 p-3 text-center text-sm text-destructive">
+              {error}
+            </div>
+          )}
+
           {/* Form */}
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <Input
               id="email"
+              name="email"
               label="Email"
               type="email"
               placeholder="you@example.com"
@@ -50,12 +82,19 @@ export default function LoginPage() {
             />
             <Input
               id="password"
+              name="password"
               label="Password"
               type="password"
               placeholder="Your password"
               required
             />
-            <Button type="submit" size="lg" className="mt-2 w-full">
+            <Button
+              type="submit"
+              size="lg"
+              className="mt-2 w-full"
+              disabled={loading}
+            >
+              {loading && <Loader2 size={16} className="mr-2 animate-spin" />}
               Log In
             </Button>
           </form>
@@ -78,7 +117,10 @@ export default function LoginPage() {
         {/* Signup link */}
         <div className="mt-4 rounded-2xl border border-border bg-card p-5 text-center text-sm">
           Don&apos;t have an account?{" "}
-          <Link href="/signup" className="font-semibold text-primary hover:underline">
+          <Link
+            href="/signup"
+            className="font-semibold text-primary hover:underline"
+          >
             Sign up
           </Link>
         </div>
